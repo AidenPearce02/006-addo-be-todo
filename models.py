@@ -1,16 +1,17 @@
 import peewee as pw
+import datetime
 
-db = pw.SqliteDatabase('database.db')
+database = pw.SqliteDatabase("database.db")
 
 
 def initialize():
-    Project.create_table(fail_silently=True)
-    Task.create_table(fail_silently=True)
     User.create_table(fail_silently=True)
+    Projects.create_table(fail_silently=True)
+    Tasks.create_table(fail_silently=True)
     try:
         User.create(
-            username='root',
-            password='123'
+            name='root',
+            password='root'
         )
     except pw.IntegrityError:
         pass
@@ -18,12 +19,13 @@ def initialize():
 
 class BaseModel(pw.Model):
     class Meta:
-        database = db
+        database = database
 
 
 class User(BaseModel):
-    username = pw.CharField(max_length=70, unique=True)
-    password = pw.CharField(max_length=70)
+    name = pw.CharField(unique=True, max_length=30, null=False)
+    password = pw.CharField(null=False)
+    state = pw.BooleanField(default=True)
 
     def is_authenticated(self):
         return True
@@ -38,20 +40,20 @@ class User(BaseModel):
         return str(self.id)
 
     def __repr__(self):
-        return '<User %r>' % (self.username)
+        return '<User %r>' % (self.name)
 
 
-class Project(BaseModel):
-    name = pw.CharField(max_length=100)
-    color = pw.CharField(max_length=100)
-    user = pw.ForeignKeyField(User)
+class Projects(BaseModel):
+    name = pw.CharField(null=False)
+    color = pw.CharField(null=False)
+    to_user = pw.ForeignKeyField(User, null=False)
 
 
-class Task(BaseModel):
-    name = pw.CharField(max_length=100)
-    date = pw.DateField()
-    priority = pw.IntegerField()
-    project = pw.ForeignKeyField(Project)
-    endTask = pw.BooleanField(default=False)
-
-
+class Tasks(BaseModel):
+    name = pw.CharField(null=False)
+    text = pw.TextField(null=True)
+    date = pw.DateTimeField(null=False, formats='%d.%m.%Y', default=datetime.datetime.now())
+    status = pw.BooleanField(null=True, default=False)
+    priority = pw.IntegerField(default=0, null=False)
+    to_project = pw.ForeignKeyField(Projects, null=False, related_name="create_in")
+    to_user = pw.ForeignKeyField(User, null=False, related_name="create_by")
