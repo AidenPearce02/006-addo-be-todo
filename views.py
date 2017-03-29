@@ -1,17 +1,19 @@
 import pprint
 from datetime import datetime, timedelta
-from functools import wraps
 
-from flask import Flask, jsonify, session
+from flask import Flask, jsonify
 from flask import g, request
 from flask_cors import CORS, cross_origin
-from flask_login import LoginManager, current_user, login_user, logout_user
+from flask_jwt import JWT, jwt_required, current_identity
+from flask_login import LoginManager, logout_user
+from werkzeug.security import safe_str_cmp
 
 from be.models import initialize, User, Tasks, Projects
 from be.schemas import user_schema, project_schema, task_schema
 
 app = Flask(__name__)
 app.secret_key = "super key"
+app.config['JWT_AUTH_URL_RULE'] = '/login'
 
 cors = CORS(app, supports_credentials=True, resources={r"/*": {"origins": "*"}})
 app.config['CORS_HEADERS'] = 'Content-Type'
@@ -19,21 +21,24 @@ login_manager = LoginManager(app)
 login_manager.login_view = 'login'
 
 
-# decorator
-def login_require(func):
-    @wraps(func)
-    def decorated_view(*args, **kwargs):
-        if g.user.is_authenticated:
-            return func(*args, **kwargs)
-        else:
-            return jsonify({'message': 'You is not loged'})
+def authenticate(username, password):
+    user = User.filter(User.username == username).first()
+    if user and safe_str_cmp(user.password.encode('utf-8'), password.encode('utf-8')):
+        return user
+    return None
 
-    return decorated_view
+
+def identity(payload):
+    user_id = payload['identity']
+    return User.get(id=user_id)
+
+
+jwt = JWT(app, authenticate,identity)
 
 
 @app.before_request
 def before_request():
-    g.user = current_user
+    g.user = current_identity
 
 
 @app.after_request
@@ -47,32 +52,9 @@ def add_header(response):
 def load_user(id):
     return User.get(id=int(id))
 
-
-@app.route("/login", methods=['POST'])
-@cross_origin()
-def login():
-    json_data = request.json
-    if not json_data:
-        return jsonify({'message': 'No input data provided'}), 400
-    data, errors = user_schema.load(json_data)
-    if errors:
-        return jsonify({'message': "No input data"})
-
-    name, password = data.name, data.password
-
-    user = User.select().filter(name=name).first()
-    if user is None:
-        return jsonify({'message': 'Incorect username'}), 418
-    if password != user.password:
-        return jsonify({'message': 'Wrong password'}), 418
-    login_user(user)
-
-    return jsonify(**session)
-
-
 @app.route("/logout")
 @cross_origin()
-@login_require
+@jwt_required()
 def logout():
     logout_user()
     return jsonify({'message': 'Is logout! Bye!!!'}), 200
@@ -87,10 +69,10 @@ def new_user():
     data, errors = user_schema.load(json_data)
     if errors:
         return jsonify(errors), 422
-    name, password = data.name, data.password
-    user = User.select().filter(name=name).first()
+    name, password = data.username, data.password
+    user = User.select().filter(username=name).first()
     if user is None:
-        User.create(name=name, password=password)
+        User.create(username=name, password=password)
         return jsonify({"message": "Created new user: {}".format(name)})
     return jsonify({"message": "Can't Created user: {} is alredy exist".format(name)})
 
@@ -99,7 +81,7 @@ def new_user():
 
 @app.route("/project", methods=["POST"])
 @cross_origin()
-@login_require
+@jwt_required()
 def new_project():
     json_data = request.json
     if not json_data:
@@ -114,7 +96,7 @@ def new_project():
 
 @app.route("/projects", methods=["GET"])
 @cross_origin()
-@login_require
+@jwt_required()
 def get_projects():
     return jsonify(project_schema.dump(Projects.select().join(User).where(Projects.to_user == g.user.get_id()),
                                        many=True).data), 200
@@ -122,7 +104,7 @@ def get_projects():
 
 @app.route("/project/<int:id>", methods=["GET"])
 @cross_origin()
-@login_require
+@jwt_required()
 def get_project(id):
     try:
         project = Projects.select().where(Projects.id == id).filter(Projects.to_user == g.user.get_id())
@@ -133,7 +115,7 @@ def get_project(id):
 
 @app.route("/project/<int:id>", methods=["PUT"])
 @cross_origin()
-@login_require
+@jwt_required()
 def update_project(id):
     try:
         project = Projects.select().where(Projects.id == id).filter(Projects.to_user == g.user.get_id())
@@ -152,7 +134,7 @@ def update_project(id):
 
 @app.route("/project/<int:id>", methods=["DELETE"])
 @cross_origin()
-@login_require
+@jwt_required()
 def delete_project(id):
     is_exist = Projects.select().where(Projects.id == id).filter(Projects.to_user == g.user.get_id()).exists()
     if not is_exist:
@@ -166,14 +148,14 @@ def delete_project(id):
 
 @app.route("/user", methods=["GET"])
 @cross_origin()
-@login_require
+@jwt_required()
 def get_users():
     return jsonify(user_schema.dump(User.select()).data), 200
 
 
 @app.route("/user/<int:id>", methods=["GET"])
 @cross_origin()
-@login_require
+@jwt_required()
 def get_user(id):
     try:
         user = User.get(id=id)
@@ -184,7 +166,7 @@ def get_user(id):
 
 @app.route('/user/<int:id>', methods=["PUT"])
 @cross_origin()
-@login_require
+@jwt_required()
 def update_user(id):
     try:
         user = User.get(id=id)
@@ -203,7 +185,7 @@ def update_user(id):
 
 @app.route('/user/<int:id>', methods=["DELETE"])
 @cross_origin()
-@login_require
+@jwt_required()
 def delete_user(id):
     is__exists = User.select().filter(id=id).exists()
 
@@ -218,7 +200,7 @@ def delete_user(id):
 
 @app.route("/task", methods=["POST"])
 @cross_origin()
-@login_require
+@jwt_required()
 def set_task():
     json_data = request.json
     if not json_data:
@@ -226,26 +208,26 @@ def set_task():
     data, errors = task_schema.load(json_data)
     if errors:
         return jsonify(errors), 422
-    pprint.pprint(data)
-    name, text, date, status, priority, to_project_id, to_user_id = data.name, data.text, data.date, data.status, data.priority, data.to_project_id, data.to_user_id
-    print("Do it")
-    Tasks.create(name=name, text=text, date=date, status=status, priority=priority, to_project_id=to_project_id,
-                    to_user_id=to_user_id)
+    name, text, date, status, priority, to_project_id, to_user_id = data.name, data.text, data.date, data.status, data.priority, data.to_project, data.to_user
+    Tasks.create(name=name, text=text, date=date, status=status, priority=priority, to_project=to_project_id,
+                    to_user=to_user_id)
     return jsonify({"message": "Created new task: {}".format(name)})
 
 
 @app.route("/tasks", methods=["GET"])
 @cross_origin()
-@login_require
+@jwt_required()
 def get_tasks():
+    params = request.args
+    page = int(params.get('page'))
     return jsonify(task_schema.dump(Tasks.select(Tasks, Projects).join(Projects).where(Tasks.to_user == g.user.get_id(),
                                                                                        Tasks.status == False).order_by(
-        +Tasks.priority, Tasks.date), many=True).data), 200
+        +Tasks.priority, Tasks.date)[(page-1)*10 : page*10], many=True).data),200
 
 
 @app.route("/task/<int:id>", methods=["GET"])
 @cross_origin()
-@login_require
+@jwt_required()
 def get_task(id):
     try:
         task = Tasks.select().where(Tasks.id == id).filter(Tasks.to_user == g.user.get_id())
@@ -256,31 +238,32 @@ def get_task(id):
 
 @app.route("/tasks/next/<int:days>", methods=["GET"])
 @cross_origin()
-@login_require
+@jwt_required()
 def get_next_tasks(days):
+    params = request.args
+    page = int(params.get('page'))
     today = datetime.today().strftime("%Y-%m-%d")
     nextDays = (datetime.today() + timedelta(days=days)).strftime("%Y-%m-%d")
-    task = Tasks.select(Tasks, Projects).join(Projects).where(Tasks.to_user == g.user.get_id()).order_by(
-        +Tasks.priority, Tasks.date)
+    task = Tasks.select(Tasks, Projects).join(Projects).where(Tasks.to_user == g.user.get_id(),Tasks.status == False).order_by(
+        'id')[(page-1)*10 : page*10]
     task_next = task.filter(Tasks.date >= today, Tasks.date < nextDays)
     return jsonify(task_schema.dump(task_next, many=True).data), 200
 
 
-@app.route("/tasks/archive", methods=["GET"])
+@app.route("/tasks/archive>", methods=["GET"])
 @cross_origin()
-@login_require
+@jwt_required()
 def get_archive_tasks():
-    today = datetime.today().strftime("%Y-%m-%d")
-    nextDays = (datetime.today() + timedelta(days=0)).strftime("%Y-%m-%d")
-    task = Tasks.select(Tasks, Projects).join(Projects).where(Tasks.to_user == g.user.get_id()).order_by(
-        +Tasks.priority, Tasks.date)
-    task_next = task.filter(Tasks.date >= today, Tasks.date < nextDays)
-    return jsonify(task_schema.dump(task_next, many=True).data), 200
+    params = request.args
+    page = int(params.get('page'))
+    task = Tasks.select(Tasks, Projects).join(Projects).where(Tasks.to_user == g.user.get_id()).where(Tasks.status==True).order_by(
+        +Tasks.priority, Tasks.date)[(page-1)*10 : page*10]
+    return jsonify(task_schema.dump(task, many=True).data), 200
 
 
 @app.route('/task/<int:id>', methods=["PUT"])
 @cross_origin()
-@login_require
+@jwt_required()
 def update_task(id):
     try:
         task = Tasks.select().where(Tasks.id == id).filter(Tasks.to_user == g.user.get_id())
@@ -300,7 +283,7 @@ def update_task(id):
 
 @app.route('/task/<int:id>', methods=["DELETE"])
 @cross_origin()
-@login_require
+@jwt_required()
 def delete_task(id):
     is__exists = Tasks.select().where(Tasks.id == id).filter(Tasks.to_user == g.user.get_id()).exists()
 
@@ -313,4 +296,4 @@ def delete_task(id):
 
 if __name__ == "__main__":
     initialize()
-    app.run(debug=True, use_reloader=True)
+    app.run(use_reloader=True)

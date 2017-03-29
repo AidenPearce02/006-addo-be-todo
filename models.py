@@ -10,7 +10,7 @@ def initialize():
     Tasks.create_table(fail_silently=True)
     try:
         User.create(
-            name='root',
+            username='root',
             password='root'
         )
     except pw.IntegrityError:
@@ -23,7 +23,7 @@ class BaseModel(pw.Model):
 
 
 class User(BaseModel):
-    name = pw.CharField(unique=True, max_length=30, null=False)
+    username = pw.CharField(unique=True, max_length=30, null=False)
     password = pw.CharField(null=False)
     state = pw.BooleanField(default=True)
 
@@ -40,7 +40,7 @@ class User(BaseModel):
         return str(self.id)
 
     def __repr__(self):
-        return '<User %r>' % (self.name)
+        return '<User %r>' % (self.username)
 
 
 class Projects(BaseModel):

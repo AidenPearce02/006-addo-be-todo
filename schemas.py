@@ -6,7 +6,7 @@ from marshmallow_peewee import Related
 
 
 class UserSchema(ModelSchema):
-    name = fields.Str(validate=[validate.Length(min=3, max=50)])
+    username = fields.Str(validate=[validate.Length(min=3, max=50)])
     password = fields.Str(validate=[validate.Length(min=3, max=30)])
 
     class Meta:
