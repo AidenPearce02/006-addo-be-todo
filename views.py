@@ -33,7 +33,7 @@ def identity(payload):
     return User.get(id=user_id)
 
 
-jwt = JWT(app, authenticate,identity)
+jwt = JWT(app, authenticate, identity)
 
 
 @app.before_request
@@ -51,6 +51,7 @@ def add_header(response):
 @login_manager.user_loader
 def load_user(id):
     return User.get(id=int(id))
+
 
 @app.route("/logout")
 @cross_origin()
@@ -210,7 +211,7 @@ def set_task():
         return jsonify(errors), 422
     name, text, date, status, priority, to_project_id, to_user_id = data.name, data.text, data.date, data.status, data.priority, data.to_project, data.to_user
     Tasks.create(name=name, text=text, date=date, status=status, priority=priority, to_project=to_project_id,
-                    to_user=to_user_id)
+                 to_user=to_user_id)
     return jsonify({"message": "Created new task: {}".format(name)})
 
 
@@ -219,10 +220,15 @@ def set_task():
 @jwt_required()
 def get_tasks():
     params = request.args
-    page = int(params.get('page'))
+    try:
+        page = int(params.get('page'))
+    except TypeError:
+        return jsonify({"message": "Not int"}), 404
+    if page <= 0:
+        return jsonify({"message": "Too small a number"}), 404
     return jsonify(task_schema.dump(Tasks.select(Tasks, Projects).join(Projects).where(Tasks.to_user == g.user.get_id(),
                                                                                        Tasks.status == False).order_by(
-        +Tasks.priority, Tasks.date)[(page-1)*10 : page*10], many=True).data),200
+        +Tasks.priority, Tasks.date)[(page - 1) * 10: page * 10], many=True).data), 200
 
 
 @app.route("/task/<int:id>", methods=["GET"])
@@ -241,11 +247,17 @@ def get_task(id):
 @jwt_required()
 def get_next_tasks(days):
     params = request.args
-    page = int(params.get('page'))
+    try:
+        page = int(params.get('page'))
+    except TypeError:
+        return jsonify({"message": "Not int"}), 404
+    if page <= 0:
+        return jsonify({"message": "Too small a number"}), 404
     today = datetime.today().strftime("%Y-%m-%d")
     nextDays = (datetime.today() + timedelta(days=days)).strftime("%Y-%m-%d")
-    task = Tasks.select(Tasks, Projects).join(Projects).where(Tasks.to_user == g.user.get_id(),Tasks.status == False).order_by(
-        'id')[(page-1)*10 : page*10]
+    task = Tasks.select(Tasks, Projects).join(Projects).where(Tasks.to_user == g.user.get_id(),
+                                                              Tasks.status == False).order_by(
+        'id')[(page - 1) * 10: page * 10]
     task_next = task.filter(Tasks.date >= today, Tasks.date < nextDays)
     return jsonify(task_schema.dump(task_next, many=True).data), 200
 
@@ -255,9 +267,15 @@ def get_next_tasks(days):
 @jwt_required()
 def get_archive_tasks():
     params = request.args
-    page = int(params.get('page'))
-    task = Tasks.select(Tasks, Projects).join(Projects).where(Tasks.to_user == g.user.get_id()).where(Tasks.status==True).order_by(
-        +Tasks.priority, Tasks.date)[(page-1)*10 : page*10]
+    try:
+        page = int(params.get('page'))
+    except TypeError:
+        return jsonify({"message": "Not int"}), 404
+    if page <= 0:
+        return jsonify({"message": "Too small a number"}), 404
+    task = Tasks.select(Tasks, Projects).join(Projects).where(Tasks.to_user == g.user.get_id()).where(
+        Tasks.status == True).order_by(
+        +Tasks.priority, Tasks.date)[(page - 1) * 10: page * 10]
     return jsonify(task_schema.dump(task, many=True).data), 200
 
 
